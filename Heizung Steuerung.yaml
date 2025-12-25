@@ -1,0 +1,83 @@
+alias: Heizung Steuerung Wärmepumpe
+description: |-
+  30.11.2025
+  Steuerung nach Solltemp, Nachtabsenkung, Urlaub und Außentemperatur
+triggers:
+  - entity_id:
+      - sensor.bthome_temperature_eg
+      - sensor.shelly_system_temperatur_temperature
+      - sensor.aussentemperatur
+      - input_number.heiz_temp_soll
+      - input_boolean.urlaub
+      - input_select.heiz_referenzraum
+      - input_datetime.heiz_nacht_start
+      - input_datetime.heiz_nacht_ende
+      - input_number.heiz_aussentemp_grenze
+    trigger: state
+  - minutes: /5
+    trigger: time_pattern
+conditions:
+  - condition: state
+    entity_id: input_boolean.heiz_automation_ein_aus
+    state: "on"
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ temp_ist <= zieltemp }}"
+        sequence:
+          - target:
+              entity_id: switch.heizung
+            action: switch.turn_on
+          - data:
+              value: "{{ zieltemp + 0.5 | float }}"
+            action: input_number.set_value
+            target:
+              entity_id: input_number.heiz_schaltpunkt
+      - conditions:
+          - condition: template
+            value_template: "{{ temp_ist > zieltemp + 0.5 }}"
+        sequence:
+          - target:
+              entity_id: switch.heizung
+            action: switch.turn_off
+          - data:
+              value: "{{ (zieltemp) | float }}"
+            action: input_number.set_value
+            target:
+              entity_id: input_number.heiz_schaltpunkt
+    default: []
+variables:
+  temp_eg: "{{ states('sensor.bthome_temperature_eg') | float }}"
+  temp_og: "{{ states('sensor.shelly_system_temperatur_temperature') | float }}"
+  temp_outside: "{{ states('sensor.aussentemperatur') | float }}"
+  soll_basis: "{{ states('input_number.heiz_temp_soll') | float }}"
+  urlaub: "{{ is_state('input_boolean.urlaub', 'on') }}"
+  nacht_absenkung: 2
+  auss_grenze: "{{ states('input_number.heiz_aussentemp_grenze') | float }}"
+  raum: "{{ states('input_select.heiz_referenzraum') }}"
+  nacht_start: "{{ states('input_datetime.heiz_nacht_start')[0:5] }}"
+  nacht_ende: "{{ states('input_datetime.heiz_nacht_ende')[0:5] }}"
+  nachtzeit: |
+    {% set nowt = now().strftime('%H:%M') %}
+    {% if nacht_start < nacht_ende %}
+      {{ nacht_start <= nowt < nacht_ende }}
+    {% else %}
+      {{ nowt >= nacht_start or nowt < nacht_ende }}
+    {% endif %}
+  temp_ist: |
+    {% if raum == 'EG' %}
+      {{ temp_eg }}
+    {% else %}
+      {{ temp_og }}
+    {% endif %}
+  zieltemp: |
+    {% set z = soll_basis %}
+    {% if urlaub %}
+      {% set z = z - 2 %}
+    {% endif %}
+    {% if nachtzeit and temp_outside > auss_grenze %}
+      {% set z = z - nacht_absenkung %}
+    {% endif %}
+    {{ z }}
+mode: single
