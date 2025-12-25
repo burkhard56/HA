@@ -1,6 +1,6 @@
 alias: Wallbox
 description: |-
-  30.11.2025
+  25.12.2025
   Steuert go-e Wallbox über die Auswahlbox
   Vereinfachte Version mit PV-Session
 triggers:
