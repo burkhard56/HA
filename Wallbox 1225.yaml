@@ -1,33 +1,45 @@
-alias: Wallbox
+alias: Wallbox 28.12
 description: |-
-  25.12.2025
-  Steuert go-e Wallbox über die Auswahlbox
-  Vereinfachte Version mit PV-Session
+  28.12.2025
+  Steuerung der go-e Wallbox über Auswahlbox + PV-Logik
+  - Moduswahl über input_select.wallbox_auswahl:
+    * "Aus"
+    * "Überschuss PV"
+    * "Laden sofort (11kW)"
+    * "Laden Zeit (11kW)"
+  - PV-Überschuss: 1-phasiges Laden, Hausbatterie-SOC wird nach Start ignoriert
+  - Session-Merker: input_boolean.wallbox_pv_session
+mode: single
+
 triggers:
+  # Zustand ändert sich an einer der relevanten Entitäten
   - trigger: state
     id: any_state
     entity_id:
-      - input_select.wallbox_auswahl
-      - sensor.victron_battery_soc
-      - number.pv_gesamt
-      - sensor.skoda_elroq_batteriestand
-      - number.skoda_elroq_ladelimit
-      - input_boolean.wallbox_boost
-      - input_datetime.wallbox_zeit_start
-      - input_datetime.wallbox_zeit_ende
+      - input_select.wallbox_auswahl          # Moduswahl
+      - sensor.victron_battery_soc            # Hausbatterie SoC
+      - number.pv_gesamt                      # PV-Gesamtleistung (W)
+      - sensor.skoda_elroq_batteriestand      # Auto-SoC
+      - number.skoda_elroq_ladelimit          # Ziel-SoC
+      - input_boolean.wallbox_boost           # Boost für Zeitladen
+      - input_datetime.wallbox_zeit_start     # Zeitfenster Start
+      - input_datetime.wallbox_zeit_ende      # Zeitfenster Ende
 
+  # Auto an/abgesteckt
   - trigger: state
     id: car_plug
     entity_id: binary_sensor.goe_259381_car_0
 
+  # Regelmäßiger Takt zur Aktualisierung (alle 5 Minuten)
   - trigger: time_pattern
     id: tick_5min
-    minutes: /5
+    minutes: "/5"
 
 conditions: []
 
 actions:
   # 1) Nach Abstecken automatisch auf "Überschuss PV" umschalten
+  #    → Idee: Nach jeder Ladesession auf sanften PV-Betrieb zurückfallen
   - choose:
       - conditions:
           - condition: template
@@ -46,31 +58,57 @@ actions:
               option: "Überschuss PV"
     default: []
 
-  # 2) Grundwert Ladestrom
+  # 2) Grundvariablen initialisieren
+  #    - ladestrom: Soll-Strom in Ampere
+  #    - mode: aktueller Modus der Auswahlbox
   - variables:
       ladestrom: 0
+      mode: "{{ states('input_select.wallbox_auswahl') }}"
 
-  # 3) Basis-Abbruchbedingungen (SoC-Ziel erreicht, Auto nicht angesteckt, Modus Aus)
+  # 3) Basis-Abbruchbedingungen
+  #    Diese greifen vor der detaillierten Moduslogik:
+  #    a) Skoda-Ziel-SoC erreicht → Laden beenden
+  #    b) Fahrzeug nicht mehr verbunden → Laden beenden
+  #    c) Modus "Aus" → Laden beenden
+  #
+  #    Hinweis: Die Sequenzen sind leer; die eigentliche Wirkung kommt über
+  #    - ladestrom bleibt 0
+  #    - die nachfolgenden Schritte (FRC/psm setzen, Session beenden)
   - choose:
+      # a) Ziel-SoC erreicht
       - conditions:
           - condition: template
             value_template: >
               {{ states('sensor.skoda_elroq_batteriestand') | float(0)
                  >= states('number.skoda_elroq_ladelimit') | float(100) }}
         sequence: []
+
+      # b) Auto abgesteckt
       - conditions:
           - condition: state
             entity_id: binary_sensor.goe_259381_car_0
             state: "off"
         sequence: []
+
+      # c) Modus "Aus"
       - conditions:
           - condition: state
             entity_id: input_select.wallbox_auswahl
             state: "Aus"
         sequence: []
+
+    # default = eigentliche Moduslogik (wird ausgeführt, wenn kein Abbruch-Fall)
     default:
       - choose:
-          # 3a) Modus "Überschuss PV"
+
+          # 3.1) Modus "Überschuss PV"
+          #
+          # - Startbedingungen:
+          #   * PV-Leistung > 800 W
+          #   * UND (Hausbatterie SoC > 85% ODER PV-Session läuft schon)
+          #
+          # → Wenn Session einmal gestartet ist (pv_session = on),
+          #   wird der Hausbatterie-SoC nicht mehr als Bedingung herangezogen.
           - conditions:
               - condition: state
                 entity_id: input_select.wallbox_auswahl
@@ -80,21 +118,24 @@ actions:
                 above: 800
               - condition: or
                 conditions:
-                  # Startbedingung: Batterie muss voll genug sein
+                  # Startbedingung: Hausbatterie soll gut gefüllt sein
                   - condition: numeric_state
                     entity_id: sensor.victron_battery_soc
                     above: 85
-                  # Wenn PV-Session bereits läuft, Batterie ignorieren
+                  # Läuft die Session bereits, wird der Haus-SOC ignoriert
                   - condition: state
                     entity_id: input_boolean.wallbox_pv_session
                     state: "on"
             sequence:
+              # Ladestrom aus PV berechnen:
+              #   Ampere = Leistung / 230V, gekappt zwischen 6A und 16A
               - variables:
                   ladestrom: >
                     {% set pv = states('number.pv_gesamt') | float(0) %}
                     {% set amp = pv / 230 %}
                     {{ [16, [6, amp] | max] | min | round(0) }}
-              # Wenn tatsächlich geladen wird, PV-Session merken
+
+              # Wenn tatsächlich geladen wird → PV-Session aktiv setzen
               - choose:
                   - conditions:
                       - condition: template
@@ -105,7 +146,7 @@ actions:
                           entity_id: input_boolean.wallbox_pv_session
                 default: []
 
-          # 3b) Modus "Laden sofort (11kW)"
+          # 3.2) Modus "Laden sofort (11kW)" = 16A, 3-phasig (über psm=Auto)
           - conditions:
               - condition: state
                 entity_id: input_select.wallbox_auswahl
@@ -114,7 +155,9 @@ actions:
               - variables:
                   ladestrom: 16
 
-          # 3c) Modus "Laden Zeit (11kW)"
+          # 3.3) Modus "Laden Zeit (11kW)"
+          # - Boost muss an sein
+          # - aktuelle Zeit innerhalb des konfigurierten Zeitfensters
           - conditions:
               - condition: state
                 entity_id: input_select.wallbox_auswahl
@@ -129,8 +172,11 @@ actions:
               - variables:
                   ladestrom: 16
 
-  # 4) Vor Start von Überschuss-PV ggf. durch niedrigen SoC blockieren
-  #    (gilt nur solange PV-Session noch nicht läuft)
+  # 4) Blockiert Start von Überschuss-PV bei niedrigem Hausbatterie-SOC
+  #    Gilt nur, SOLANGE die PV-Session noch nicht läuft.
+  #    Ziel:
+  #      - SoC < 75% → Start von PV-Überschuss verhindern
+  #      - Sobald Session läuft, Hausbatterie-SOC ignorieren
   - choose:
       - conditions:
           - condition: state
@@ -147,7 +193,18 @@ actions:
               ladestrom: 0
     default: []
 
-  # 5) Ladestrom nur bei Änderung setzen + FRC umschalten
+  # 5) Ladestrom nur bei Änderung setzen + FRC + Phasenmodus
+  #
+  #   - FRC "2" = Laden freigeben
+  #   - FRC "1" = Laden sperren
+  #
+  #   - PSM (select.goe_259381_psm):
+  #       "0" = Auto
+  #       "1" = 1-phasig (für Überschuss-PV)
+  #       "2" = 3-phasig
+  #
+  #   - Nur wenn sich der berechnete ladestrom von der Helper-Variable
+  #     input_number.wallbox_ladestrom unterscheidet, wird konfiguriert.
   - choose:
       - conditions:
           - condition: template
@@ -155,40 +212,83 @@ actions:
               {{ ladestrom | float(0) !=
                  states('input_number.wallbox_ladestrom') | float(0) }}
         sequence:
+          # Helper für Soll-Ladestrom synchron halten
           - action: input_number.set_value
             target:
               entity_id: input_number.wallbox_ladestrom
             data:
               value: "{{ ladestrom | float(0) }}"
+
           - choose:
-              # Laden aktiv
+              # 5.1) Laden aktiv (ladestrom > 0)
               - conditions:
                   - condition: template
                     value_template: "{{ ladestrom | float(0) > 0 }}"
                 sequence:
+                  # go-e: Laden freigeben
                   - action: select.select_option
                     target:
                       entity_id: select.goe_259381_frc
                     data:
                       option: "2"
+
+                  # go-e: Sollstrom in Ampere setzen
                   - action: number.set_value
                     target:
                       entity_id: number.goe_259381_amp
                     data:
                       value: "{{ ladestrom | float(0) }}"
-              # Laden aus
+
+                  # Phasenmodus:
+                  #   - Überschuss PV → 1-phasig (psm = "1")
+                  #   - andere Modi   → Auto (psm = "0")
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ mode == 'Überschuss PV' }}"
+                        sequence:
+                          - action: select.select_option
+                            target:
+                              entity_id: select.goe_259381_psm
+                            data:
+                              option: "1"        # 1-phasig
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ mode != 'Überschuss PV' }}"
+                        sequence:
+                          - action: select.select_option
+                            target:
+                              entity_id: select.goe_259381_psm
+                            data:
+                              option: "0"        # Auto (3-phasig wo möglich)
+
+              # 5.2) Laden aus (ladestrom <= 0)
               - conditions:
                   - condition: template
                     value_template: "{{ ladestrom | float(0) <= 0 }}"
                 sequence:
+                  # go-e: Laden sperren
                   - action: select.select_option
                     target:
                       entity_id: select.goe_259381_frc
                     data:
                       option: "1"
+
+                  # Phasenmodus zurück auf Auto
+                  - action: select.select_option
+                    target:
+                      entity_id: select.goe_259381_psm
+                    data:
+                      option: "0"
     default: []
 
   # 6) PV-Session sauber beenden
+  #
+  #   - wenn Auto nicht verbunden
+  #   - ODER ladestrom <= 0
+  #   - ODER Modus nicht mehr "Überschuss PV"
+  #
+  #   → input_boolean.wallbox_pv_session wird auf off gesetzt
   - choose:
       - conditions:
           - condition: or
@@ -206,5 +306,3 @@ actions:
             target:
               entity_id: input_boolean.wallbox_pv_session
     default: []
-
-mode: single
