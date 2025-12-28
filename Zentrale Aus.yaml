@@ -1,0 +1,68 @@
+alias: Zentrale AUS – Bereiche (Vorschau + Schalten)
+mode: single
+sequence:
+  - variables:
+      # Welche Bereiche sollen berücksichtigt werden?
+      areas:
+        - "Erdgeschoss"
+        - "Obergeschoss"
+        # Später einfach ergänzen:
+        # - "Garten"
+        # - "Keller"
+
+      # Entitäten, die NIE ausgeschaltet werden sollen
+      skip:
+        - switch.shelly_aussenleuchte
+        - switch.shellyplus2pm_strahler_0
+        - switch.shellyplug_s_server
+        - switch.plug3
+
+      # Schalter: nur Vorschau (off) oder Vorschau + Schalten (on)?
+      scharf: "{{ is_state('input_boolean.zentrale_aus', 'on') }}"
+
+      # Alle Entitäten in den genannten Bereichen
+      area_ents: >
+        {% set ids = [] %}
+        {% for a in areas %}
+          {% set ids = ids + area_entities(a) %}
+        {% endfor %}
+        {{ ids }}
+
+      # Kandidaten: Switches + Lichter in den Bereichen, die aktuell ON sind
+      to_turn_off: >
+        {% set ents = expand(states.switch) + expand(states.light) %}
+        {{ ents
+           | selectattr('entity_id', 'in', area_ents)
+           | selectattr('state', 'eq', 'on')
+           | map(attribute='entity_id')
+           | reject('in', skip)
+           | list }}
+
+  # 1) Immer: Vorschau als Notification
+  - service: persistent_notification.create
+    data:
+      title: >
+        Zentrale AUS – {{ scharf | iif('SCHARF (schaltet)', 'nur Vorschau') }}
+      message: >
+        Bereiche: {{ areas | join(', ') }}
+
+        Es würden {{ to_turn_off | count }} Entitäten ausgeschaltet:
+
+        {% if to_turn_off | count == 0 %}
+        (Derzeit ist nichts eingeschaltet, das geschaltet werden müsste.)
+        {% else %}
+        {% for e in to_turn_off %}
+        - {{ e }}
+        {% endfor %}
+        {% endif %}
+
+  # 2) Nur wenn "scharf" und es gibt etwas zu schalten: wirklich ausschalten
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ scharf and (to_turn_off | count > 0) }}"
+        sequence:
+          - service: homeassistant.turn_off
+            target:
+              entity_id: "{{ to_turn_off | join(', ') }}"
+    default: []
