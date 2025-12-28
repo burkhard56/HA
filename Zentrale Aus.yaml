@@ -1,68 +1,57 @@
-alias: Zentrale AUS – Bereiche (Vorschau + Schalten)
+alias: Zentrale AUS (Label)
 mode: single
+
 sequence:
-  - variables:
-      # Welche Bereiche sollen berücksichtigt werden?
-      areas:
-        - "Erdgeschoss"
-        - "Obergeschoss"
-        # Später einfach ergänzen:
-        # - "Garten"
-        # - "Keller"
 
-      # Entitäten, die NIE ausgeschaltet werden sollen
-      skip:
-        - switch.shelly_aussenleuchte
-        - switch.shellyplus2pm_strahler_0
-        - switch.shellyplug_s_server
-        - switch.plug3
-
-      # Schalter: nur Vorschau (off) oder Vorschau + Schalten (on)?
-      scharf: "{{ is_state('input_boolean.zentrale_aus', 'on') }}"
-
-      # Alle Entitäten in den genannten Bereichen
-      area_ents: >
-        {% set ids = [] %}
-        {% for a in areas %}
-          {% set ids = ids + area_entities(a) %}
-        {% endfor %}
-        {{ ids }}
-
-      # Kandidaten: Switches + Lichter in den Bereichen, die aktuell ON sind
-      to_turn_off: >
-        {% set ents = expand(states.switch) + expand(states.light) %}
-        {{ ents
-           | selectattr('entity_id', 'in', area_ents)
-           | selectattr('state', 'eq', 'on')
-           | map(attribute='entity_id')
-           | reject('in', skip)
-           | list }}
-
-  # 1) Immer: Vorschau als Notification
+  # 1️⃣ Vorschau anzeigen (ohne zu schalten)
   - service: persistent_notification.create
     data:
-      title: >
-        Zentrale AUS – {{ scharf | iif('SCHARF (schaltet)', 'nur Vorschau') }}
-      message: >
-        Bereiche: {{ areas | join(', ') }}
+      title: "Zentrale AUS – Vorschau"
+      message: >-
+        {% set ents = label_entities('Zentral Aus') %}
+        {% set ns = namespace(list=[]) %}
 
-        Es würden {{ to_turn_off | count }} Entitäten ausgeschaltet:
+        Eingeschaltete Switches/Lichter mit Label **Zentral Aus**:
 
-        {% if to_turn_off | count == 0 %}
-        (Derzeit ist nichts eingeschaltet, das geschaltet werden müsste.)
-        {% else %}
-        {% for e in to_turn_off %}
-        - {{ e }}
+        {% for eid in ents
+              if (eid.startswith('switch.') or eid.startswith('light.'))
+              and states(eid) == 'on' %}
+        - {{ eid }} = {{ states(eid) }}
+        {% set ns.list = ns.list + [eid] %}
         {% endfor %}
+
+        {% if ns.list | length == 0 %}
+        (Nichts zu schalten.)
         {% endif %}
 
-  # 2) Nur wenn "scharf" und es gibt etwas zu schalten: wirklich ausschalten
+  # 2️⃣ Nur schalten, wenn Freigabe aktiv ist
   - choose:
       - conditions:
-          - condition: template
-            value_template: "{{ scharf and (to_turn_off | count > 0) }}"
+          - condition: state
+            entity_id: input_boolean.zentrale_aus
+            state: "on"
         sequence:
-          - service: homeassistant.turn_off
-            target:
-              entity_id: "{{ to_turn_off | join(', ') }}"
+
+          # Alle passenden Entitäten sammeln und ausschalten
+          - repeat:
+              for_each: >-
+                {% set ents = label_entities('Zentral Aus') %}
+                {% set ns = namespace(list=[]) %}
+                {% for e in ents %}
+                  {% if (e.startswith('switch.') or e.startswith('light.')) and states(e) == 'on' %}
+                    {% set ns.list = ns.list + [e] %}
+                  {% endif %}
+                {% endfor %}
+                {{ ns.list }}
+
+              sequence:
+                - service: homeassistant.turn_off
+                  target:
+                    entity_id: "{{ repeat.item }}"
+
+          # Optionale Rückmeldung
+          - service: persistent_notification.create
+            data:
+              title: "Zentrale AUS – ausgeführt"
+              message: "Alle markierten Geräte wurden ausgeschaltet."
     default: []
