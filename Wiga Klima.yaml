@@ -1,0 +1,102 @@
+alias: Wiga Klima – Regelung 20–08 Uhr
+id: wiga_klima_20_08
+mode: single
+
+trigger:
+  # 1) Temperatur fällt unter 10°C
+  - platform: numeric_state
+    entity_id: sensor.hm_wiga_temperatur
+    below: 10
+    id: temp_kalt
+
+  # 2) Temperatur steigt über 15°C
+  - platform: numeric_state
+    entity_id: sensor.hm_wiga_temperatur
+    above: 15
+    id: temp_warm
+
+  # 3) Täglich um 08:00 Uhr -> sicher ausschalten
+  - platform: time
+    at: "08:00:00"
+    id: zeit_acht
+
+  # 4) Optional: täglich um 20:00 Uhr -> nach Start des Zeitfensters prüfen
+  - platform: time
+    at: "20:00:00"
+    id: zeit_zwoelf
+
+action:
+  - choose:
+
+      # =========================================
+      # A) Einschalten (Temp <= 10°C, Zeit 20:00–08:00)
+      # =========================================
+      - conditions:
+          # Zeitfenster: nach 20:00 ODER vor 08:00
+          - condition: or
+            conditions:
+              - condition: time
+                after: "20:00:00"
+              - condition: time
+                before: "08:00:00"
+
+          # Temperatur wirklich <= 16°C
+          - condition: numeric_state
+            entity_id: sensor.hm_wiga_temperatur
+            below: 16
+        sequence:
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: climate.klima_wintergarten_room_temperature
+            data:
+              hvac_mode: heat
+
+          - service: climate.set_temperature
+            target:
+              entity_id: climate.klima_wintergarten_room_temperature
+            data:
+              temperature: 15
+
+      # =========================================
+      # B) Ausschalten (Temp >= 15°C, Zeit 20:00–08:00)
+      # =========================================
+      - conditions:
+          # Zeitfenster: nach 20:00 ODER vor 08:00
+          - condition: or
+            conditions:
+              - condition: time
+                after: "20:00:00"
+              - condition: time
+                before: "08:00:00"
+
+          # Temperatur wirklich >= 15°C
+          - condition: numeric_state
+            entity_id: sensor.hm_wiga_temperatur
+            above: 15
+        sequence:
+          - condition: template
+            value_template: >
+              {{ not is_state('climate.klima_wintergarten_room_temperature', 'off') }}
+
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: climate.klima_wintergarten_room_temperature
+            data:
+              hvac_mode: "off"
+
+      # =========================================
+      # C) Ausschalten um 08:00 (immer)
+      # =========================================
+      - conditions:
+          - condition: trigger
+            id: zeit_acht
+        sequence:
+          - condition: template
+            value_template: >
+              {{ not is_state('climate.klima_wintergarten_room_temperature', 'off') }}
+
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: climate.klima_wintergarten_room_temperature
+            data:
+              hvac_mode: "off"
