@@ -1,0 +1,27 @@
+alias: 23:55 eMail
+description: beinhaltet alle Daten des vergangenen Tages für Statistik
+triggers:
+  - trigger: time
+    at: "23:55:00"
+conditions: []
+actions:
+  - action: email_notifier.send
+    data:
+      account: notify.email_notification_sender_1
+      recipients: fernhomberg@fernware.de
+      title: Status Haus - {{ now().strftime('%d.%m.%Y') }}
+      message: >
+        {{ now().strftime('%d.%m.%Y') }}; Bezug:{{ '%05d' %
+        (states('sensor.tibber_pulse_am_norfbach_zahlerstand_verbrauch') |
+        float  | round(0) ) }}; Prod:{{ '%05d' %
+        (states('sensor.tibber_pulse_am_norfbach_zahlerstand_einspeisung') |
+        float | round(0) ) }}; Solar:{{ '%02d' % (states('sensor.pv_gesamt_tag')
+        | float | round(0) ) }}; WP:{{ '%03d' %
+        (states('sensor.warmepumpe_monat') | float | round(0) )}}; WP
+        Laufzeit:{{ '%05d' % (states('input_number.wp_betriebsstunden') |
+        float(0) | round(0)) }} Wallbox:{{ '%05d' %
+        (states('sensor.zaehlerwallbox') | float | round(0)) }}; Klima:{{ '%02d'
+        % (states('sensor.klima_monat') | float(0) | round(0)) }};
+        WPthermischeEnergie:{{ '%06d'
+        % (states('sensor.hc_meters_energy_produced_compressor_total') | float(0) | round(0)) }};
+mode: single
