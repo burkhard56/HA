@@ -40,10 +40,10 @@ action:
               - condition: time
                 before: "08:00:00"
 
-          # Temperatur wirklich <= 16°C
+          # Temperatur wirklich <= 10°C
           - condition: numeric_state
             entity_id: sensor.hm_wiga_temperatur
-            below: 16
+            below: 10
         sequence:
           - service: climate.set_hvac_mode
             target:
