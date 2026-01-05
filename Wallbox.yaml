@@ -1,19 +1,20 @@
-alias: Wallbox 28.12
+alias: Wallbox
 description: |-
-  28.12.2025
+  05.01.2026
   Steuerung der go-e Wallbox über Auswahlbox + PV-Logik
   - Moduswahl über input_select.wallbox_auswahl:
     * "Aus"
     * "Überschuss PV"
     * "Laden sofort (11kW)"
     * "Laden Zeit (11kW)"
+    * "Nach Anstecken wird Laden ausgeschaltet"
   - PV-Überschuss: 1-phasiges Laden, Hausbatterie-SOC wird nach Start ignoriert
   - Session-Merker: input_boolean.wallbox_pv_session
 mode: single
 
-triggers:
+trigger:
   # Zustand ändert sich an einer der relevanten Entitäten
-  - trigger: state
+  - platform: state
     id: any_state
     entity_id:
       - input_select.wallbox_auswahl          # Moduswahl
@@ -26,18 +27,32 @@ triggers:
       - input_datetime.wallbox_zeit_ende      # Zeitfenster Ende
 
   # Auto an/abgesteckt
-  - trigger: state
+  - platform: state
     id: car_plug
     entity_id: binary_sensor.goe_259381_car_0
 
   # Regelmäßiger Takt zur Aktualisierung (alle 5 Minuten)
-  - trigger: time_pattern
+  - platform: time_pattern
     id: tick_5min
     minutes: "/5"
 
-conditions: []
+action:
+  # Sofortige Reaktion auf Einstecken: Laden sperren
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ trigger is defined and trigger.id == 'car_plug'
+                 and trigger.to_state is not none
+                 and trigger.to_state.state == 'on' }}
+        sequence:
+          # Laden explizit sperren
+          - service: select.select_option
+            target:
+              entity_id: select.goe_259381_frc
+            data:
+              option: "1"
 
-actions:
   # 1) Nach Abstecken automatisch auf "Überschuss PV" umschalten
   #    → Idee: Nach jeder Ladesession auf sanften PV-Betrieb zurückfallen
   - choose:
@@ -51,7 +66,7 @@ actions:
             value_template: >
               {{ states('input_select.wallbox_auswahl') != 'Überschuss PV' }}
         sequence:
-          - action: select.select_option
+          - service: select.select_option
             target:
               entity_id: input_select.wallbox_auswahl
             data:
@@ -141,7 +156,7 @@ actions:
                       - condition: template
                         value_template: "{{ ladestrom | float(0) > 0 }}"
                     sequence:
-                      - action: input_boolean.turn_on
+                      - service: input_boolean.turn_on
                         target:
                           entity_id: input_boolean.wallbox_pv_session
                 default: []
@@ -213,7 +228,7 @@ actions:
                  states('input_number.wallbox_ladestrom') | float(0) }}
         sequence:
           # Helper für Soll-Ladestrom synchron halten
-          - action: input_number.set_value
+          - service: input_number.set_value
             target:
               entity_id: input_number.wallbox_ladestrom
             data:
@@ -226,14 +241,14 @@ actions:
                     value_template: "{{ ladestrom | float(0) > 0 }}"
                 sequence:
                   # go-e: Laden freigeben
-                  - action: select.select_option
+                  - service: select.select_option
                     target:
                       entity_id: select.goe_259381_frc
                     data:
                       option: "2"
 
                   # go-e: Sollstrom in Ampere setzen
-                  - action: number.set_value
+                  - service: number.set_value
                     target:
                       entity_id: number.goe_259381_amp
                     data:
@@ -247,7 +262,7 @@ actions:
                           - condition: template
                             value_template: "{{ mode == 'Überschuss PV' }}"
                         sequence:
-                          - action: select.select_option
+                          - service: select.select_option
                             target:
                               entity_id: select.goe_259381_psm
                             data:
@@ -256,7 +271,7 @@ actions:
                           - condition: template
                             value_template: "{{ mode != 'Überschuss PV' }}"
                         sequence:
-                          - action: select.select_option
+                          - service: select.select_option
                             target:
                               entity_id: select.goe_259381_psm
                             data:
@@ -268,14 +283,14 @@ actions:
                     value_template: "{{ ladestrom | float(0) <= 0 }}"
                 sequence:
                   # go-e: Laden sperren
-                  - action: select.select_option
+                  - service: select.select_option
                     target:
                       entity_id: select.goe_259381_frc
                     data:
                       option: "1"
 
                   # Phasenmodus zurück auf Auto
-                  - action: select.select_option
+                  - service: select.select_option
                     target:
                       entity_id: select.goe_259381_psm
                     data:
@@ -302,7 +317,7 @@ actions:
                 value_template: >
                   {{ states('input_select.wallbox_auswahl') != 'Überschuss PV' }}
         sequence:
-          - action: input_boolean.turn_off
+          - service: input_boolean.turn_off
             target:
               entity_id: input_boolean.wallbox_pv_session
     default: []
