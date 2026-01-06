@@ -1,11 +1,11 @@
 alias: Heizung Steuerung Wärmepumpe
 description: |-
-  30.11.2025
+  06.01.2026
   Steuerung nach Solltemp, Nachtabsenkung, Urlaub und Außentemperatur
 triggers:
   - entity_id:
       - sensor.bthome_temperature_eg
-      - sensor.shelly_system_temperatur_temperature
+      - sensor.bthome_buero_temperatur
       - sensor.aussentemperatur
       - input_number.heiz_temp_soll
       - input_boolean.urlaub
@@ -49,7 +49,7 @@ actions:
     default: []
 variables:
   temp_eg: "{{ states('sensor.bthome_temperature_eg') | float }}"
-  temp_og: "{{ states('sensor.shelly_system_temperatur_temperature') | float }}"
+  temp_og: "{{ states('sensor.bthome_buero_temperatur') | float }}"
   temp_outside: "{{ states('sensor.aussentemperatur') | float }}"
   soll_basis: "{{ states('input_number.heiz_temp_soll') | float }}"
   urlaub: "{{ is_state('input_boolean.urlaub', 'on') }}"
