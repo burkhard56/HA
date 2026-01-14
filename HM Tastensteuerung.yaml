@@ -1,0 +1,174 @@
+alias: HM Tastenauswertung
+description: |
+  13.01.2025
+  # FS09 EG Treppe
+  "fs09:1"; // Tischlampe aus
+  "fs09:2"; // Tischlampe WZ Helligkeit 50%
+  "fs09:3"; // Esstisch aus
+  "fs09:4"; // Esstisch ein
+  "fs09:5"; // Decke Flur oben aus
+  "fs09:6"; // Decke Flur oben ein
+
+  # FS10 Abstellraum zu
+  "fs10:1"; //Abstellraum zu
+  
+  # F01WD Wandtaster Carport
+  "f01wd:13"; // Abstellraum zu
+  "f01wd:14"; // Abstellraum auf
+  
+  # F02WD Wandtaster Flur
+  "f02wd:3"; // GesamtLicht aus (nicht aktiv)
+  "f02wd:5"; // Bad Licht Decke aus
+  "f02wd:6"; // Bad Licht Decke an
+  "f02wd:17"; // Bodenklappe zu
+  "f02wd:18"; // Bodenklappe auf
+  
+triggers:
+  - entity_id: sensor.hmtaste
+    trigger: state
+actions:
+  # FS09 EG Treppe
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'fs09:1' }}"
+        sequence:
+          - target:
+              entity_id: light.a_eg_wz_tischlampe
+            action: light.turn_off
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'fs09:2' }}"
+        sequence:
+          - target:
+              entity_id: light.a_eg_wz_tischlampe
+            action: light.turn_on
+            data:
+              brightness_pct: 50
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'fs09:3' }}"
+        sequence:
+          - target:
+              entity_id: switch.wz_esstisch
+            action: switch.turn_off
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'fs09:4' }}"
+        sequence:
+          - target:
+              entity_id: switch.wz_esstisch
+            action: switch.turn_on
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'fs09:5' }}"
+        sequence:
+          - target:
+              entity_id: switch.decke_2
+            action: switch.turn_off
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'fs09:6' }}"
+        sequence:
+          - target:
+              entity_id: switch.decke_2
+            action: switch.turn_on
+  # FS10 Abstellraum zu
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'fs10:1' }}"
+        sequence:
+          - action: cover.close_cover
+            metadata: {}
+            data: {}
+            target:
+              entity_id: cover.shellyplus2pm_abstellraum_127
+  # F01WD Wandtaster Carport
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'f01wd:13' }}"
+        sequence:
+          - action: cover.close_cover
+            metadata: {}
+            data: {}
+            target:
+              entity_id: cover.shellyplus2pm_abstellraum_127
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'f01wd:14' }}"
+        sequence:
+          - action: cover.open_cover
+            metadata: {}
+            data: {}
+            target:
+              entity_id: cover.shellyplus2pm_abstellraum_127
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'f01wd:19' }}"
+        sequence:
+          - action: cover.close_cover
+            metadata: {}
+            data: {}
+            target:
+              entity_id: cover.shelly_j_carport_145
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'f01wd:20' }}"
+        sequence:
+          - action: cover.open_cover
+            metadata: {}
+            data: {}
+            target:
+              entity_id: cover.shelly_j_carport_145 
+  # F02WD Wandtaster Flur
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'f02wd:5' }}"
+        sequence:
+          - target:
+              entity_id: switch.og_bad_decke_111
+            action: switch.turn_off
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'f02wd:6' }}"
+        sequence:
+          - target:
+              entity_id: switch.og_bad_decke_111
+            action: switch.turn_on
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'f02wd:17' }}"
+        sequence:
+          - action: cover.close_cover
+            metadata: {}
+            data: {}
+            target:
+              entity_id: cover.og_dachbodenklappe_125
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.state == 'f02wd:18' }}"
+        sequence:
+          - action: cover.open_cover
+            metadata: {}
+            data: {}
+            target:
+              entity_id: cover.og_dachbodenklappe_125 
+			
+    default:
+      - data:
+          message: "Unbekannter Taster-Wert: {{ trigger.to_state.state }}"
+        action: system_log.write
