@@ -68,7 +68,7 @@ actions:
             value_template: "{{ trigger.to_state.state == 'fs09:5' }}"
         sequence:
           - target:
-              entity_id: switch.decke_2
+              entity_id: switch.treppe
             action: switch.turn_off
   - choose:
       - conditions:
@@ -76,7 +76,7 @@ actions:
             value_template: "{{ trigger.to_state.state == 'fs09:6' }}"
         sequence:
           - target:
-              entity_id: switch.decke_2
+              entity_id: switch.treppe
             action: switch.turn_on
   # FS10 Abstellraum zu
   - choose:
