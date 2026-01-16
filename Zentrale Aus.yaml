@@ -1,4 +1,7 @@
 alias: Zentrale AUS (Label)
+description: >
+  Vorschau + optionales Ausschalten aller eingeschalteten Switches/Lights,
+  die das Label "Zentral Aus" tragen. Schalten nur, wenn input_boolean.zentrale_aus = on.
 mode: single
 
 sequence:
@@ -16,7 +19,7 @@ sequence:
         {% for eid in ents
               if (eid.startswith('switch.') or eid.startswith('light.'))
               and states(eid) == 'on' %}
-        - {{ eid }} = {{ states(eid) }}
+        - {{ state_attr(eid, 'friendly_name') or eid }} = {{ states(eid) }}
         {% set ns.list = ns.list + [eid] %}
         {% endfor %}
 
