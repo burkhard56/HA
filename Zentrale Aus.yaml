@@ -28,7 +28,7 @@ sequence:
   - choose:
       - conditions:
           - condition: state
-            entity_id: input_boolean.zentrale_aus
+            entity_id: input_boolean.zentral_aus
             state: "on"
         sequence:
 
