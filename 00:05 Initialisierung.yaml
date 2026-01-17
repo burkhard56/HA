@@ -1,0 +1,54 @@
+alias: 00:05 Initialisierung
+description: |-
+  Heizung:
+  Solltemperatur wird auf 21.5 Grad gesetzt
+  Referenzraum ist EG (unter 0 Grad OG)
+  Urlaub:
+  Zwischen Urlaubsbeginn und Urlaubsende wird das Flag Urlaub gesetzt 
+triggers:
+  - trigger: time
+    at: "00:05:00"
+conditions: []
+actions:
+  - action: input_number.set_value
+    data:
+      value: 21.5
+    target:
+      entity_id: input_number.heiz_temp_soll
+
+  - action: input_select.select_option
+    data:
+      option: EG
+    target:
+      entity_id: input_select.heiz_referenzraum
+
+  - choose:
+      - conditions:
+          - condition: numeric_state
+            entity_id: sensor.aussentemperatur
+            below: 0
+        sequence:
+          - action: input_select.select_option
+            data:
+              option: OG
+            target:
+              entity_id: input_select.heiz_referenzraum
+
+  # Urlaub: täglich konsistent setzen (Beginn/Ende inkl.)
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >
+              {% set b = (states('input_datetime.urlaub_beginn') | as_datetime).date() %}
+              {% set e = (states('input_datetime.urlaub_ende')   | as_datetime).date() %}
+              {{ b <= now().date() < e }}
+        sequence:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.urlaub
+    default:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.urlaub
+
+mode: single
